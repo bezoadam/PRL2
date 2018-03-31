@@ -30,18 +30,19 @@ int getPreviousId(int numprocs, int currentId) {
 int main(int argc, char ** argv) {
 	int numprocs, myId;
 	vector<int> values;
-	MPI_Status status;            //struct- obsahuje kod- source, tag, error
-	char input[]= "numbers";                          //jmeno souboru
+	MPI_Status status;	//struct- obsahuje kod- source, tag, error
+	char input[]= "numbers";	//meno suboru
 	double startTime, endTime;
 
 	MPI_Init(&argc, &argv);
-	MPI_Comm_size(MPI_COMM_WORLD, &numprocs);       // zjistíme, kolik procesů běží
-	MPI_Comm_rank(MPI_COMM_WORLD, &myId);           // zjistíme id svého procesu
+	MPI_Comm_size(MPI_COMM_WORLD, &numprocs);       // zistime pocet procesorov
+	MPI_Comm_rank(MPI_COMM_WORLD, &myId);           // zistime id svojho procesoru
 
 #ifdef DEBUG
 	cout << "Pocet procesu: " << numprocs << endl;
 #endif
 
+	// Vypocet rozdelenia vstupnych hodnot medzi vsetky procesory.
 	int local_counts[numprocs], offsets[numprocs];
 	ifstream fileNumbers (input, ios::in|ios::binary|ios::ate);
 	if (fileNumbers.is_open()) {
@@ -63,29 +64,29 @@ int main(int argc, char ** argv) {
 		return 1;
 	}
 
+	// Kazdy procesor si vytvori potrebnu velkost pola.
 	int localArray[local_counts[myId]];
 
 	if (myId == 0) {
-		int number;                                     //hodnota pri nacitani souboru
-		fstream fin;                                    //cteni ze souboru
+		int number; 	//hodnota zo suboru
+		fstream fin; 	//citania zo suboru
 		fin.open(input, ios::in);
 		while(fin.good()){
 			number= fin.get();
-			if(!fin.good()) break;                      //nacte i eof, takze vyskocim
+			if(!fin.good()) break;		//necitame eof
 			values.push_back(number);
-
 		}
 		fin.close();
 		printVector(values);
 	}
 
-	startTime = MPI_Wtime();
+	startTime = MPI_Wtime();	//pociatocny cas
 	int *original_array = &values[0];
+
+	// Rozdistribuovanie hodnot medzi vsetky procesory na zaklade vypocitanych offsetov.
     MPI_Scatterv(original_array, local_counts, offsets, MPI_INT, localArray, local_counts[myId], MPI_INT, TAG, MPI_COMM_WORLD);
 
 	vector<int> finalValues(localArray, localArray + local_counts[myId]);
-	// cout << "\nBefore: \n";
-	// printVector(finalValues);
 	
 	sort(finalValues.begin(), finalValues.end());
 	
@@ -94,22 +95,23 @@ int main(int argc, char ** argv) {
 	printVector(finalValues);
 #endif
 
-	vector<int> receivedValues;
+	vector<int> receivedValues;		//ziskane hodnoty od susedneho procesoru
 
 	for(int j = 1; j <= numprocs / 2; j++) {
 		if (myId % 2 != 0) {
-			//lichy odosielam
+			//odosielam data z licheho procesoru
 			int nextId = getNextId(numprocs, myId);
 			MPI_Send(&finalValues[0], finalValues.size(), MPI_INT, nextId, TAG, MPI_COMM_WORLD);
+
 #ifdef DEBUG
 			printf("Sent from id: %d \n", myId);
 			printVector(finalValues);
 #endif
 
-			// finalValues.resize(local_counts[nextId]);
+			//prijmam spracovane data zo susedneho procesoru
 			MPI_Recv(&finalValues[0], finalValues.size(), MPI_INT, nextId, TAG, MPI_COMM_WORLD, &status);			
 		} else {
-			//sudy prijmam
+			//v sudom procesora prijmam data od susedneho procesoru
 			int previousId = getPreviousId(numprocs, myId);
 			receivedValues.resize(local_counts[previousId]);
 			MPI_Recv(&receivedValues[0], local_counts[previousId], MPI_INT, previousId, TAG, MPI_COMM_WORLD, &status);
@@ -128,7 +130,7 @@ int main(int argc, char ** argv) {
 			printVector(mergedVector);
 #endif
 
-			if (myId == 0) {
+			if (myId == 0) { //ak sa nachadzam v prvom procesore, mensia cast zostane tu, vacsiu cast vratim spat na posledny procesor
 				vector<int> splittedLower(mergedVector.begin(), mergedVector.begin() + local_counts[myId]);
 				vector<int> splittedHigher(mergedVector.begin() + local_counts[myId], mergedVector.end());
 
@@ -142,7 +144,7 @@ int main(int argc, char ** argv) {
 
 				MPI_Send(&splittedHigher[0], splittedHigher.size(), MPI_INT, previousId, TAG, MPI_COMM_WORLD);
 				finalValues = splittedLower;
-			} else {
+			} else { //ak sa nenachadzam v prvom procesore, mensia cast sa vrati povodnemu, vacsia zostava tu
 				vector<int> splittedLower(mergedVector.begin(), mergedVector.begin() + local_counts[previousId]);
 				vector<int> splittedHigher(mergedVector.begin() + local_counts[previousId], mergedVector.end());
 
@@ -161,7 +163,7 @@ int main(int argc, char ** argv) {
 		}
 
 		if (myId % 2 == 0) {
-			//sudy odosielam
+			//odosielam data zo sudeho procesoru
 			int nextId = getNextId(numprocs, myId);
 			MPI_Send(&finalValues[0], finalValues.size(), MPI_INT, nextId, TAG, MPI_COMM_WORLD);
 
@@ -170,11 +172,10 @@ int main(int argc, char ** argv) {
 			printVector(finalValues);
 #endif
 
-			// finalValues.resize(local_counts[nextId]);
+			//prijmam spracovane data zo susedneho procesoru
 			MPI_Recv(&finalValues[0], finalValues.size(), MPI_INT, nextId, TAG, MPI_COMM_WORLD, &status);	
-
 		} else {
-			//lichy prijmam
+			//v lichom procesore prijmam data
 			int previousId = getPreviousId(numprocs, myId);
 			receivedValues.resize(local_counts[previousId]);
 			MPI_Recv(&receivedValues[0], local_counts[previousId], MPI_INT, previousId, TAG, MPI_COMM_WORLD, &status);
