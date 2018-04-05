@@ -10,6 +10,12 @@
 
 using namespace std;
 
+/**
+    Vypis vektora.
+
+    @param vector<int> Vektor integerov.
+    @return void
+*/
 void printVector(vector<int> vec) {
 	for(int i = 0; i < vec.size(); i++)
 	{
@@ -19,10 +25,24 @@ void printVector(vector<int> vec) {
 	cout << endl;
 }
 
+/**
+    Zistenie nasledujuceho id procesoru
+
+    @param numprocs Celkovy pocet procesorov
+    @param currentId Cislo aktualneho procesoru
+    @return int
+*/
 int getNextId(int numprocs, int currentId) {
 	return (currentId == numprocs - 1) ? 0 : currentId + 1;
 }
 
+/**
+    Zistenie predchadzajuceho id procesoru
+
+    @param numprocs Celkovy pocet procesorov
+    @param currentId Cislo aktualneho procesoru
+    @return int
+*/
 int getPreviousId(int numprocs, int currentId) {
 	return (currentId == 0) ? numprocs - 1 : currentId - 1;
 }
@@ -43,20 +63,20 @@ int main(int argc, char ** argv) {
 #endif
 
 	// Vypocet rozdelenia vstupnych hodnot medzi vsetky procesory.
-	int local_counts[numprocs], offsets[numprocs];
+	int localCounts[numprocs], offsets[numprocs]; // Kazdy procesor ma vlastne polia
 	ifstream fileNumbers (input, ios::in|ios::binary|ios::ate);
 	if (fileNumbers.is_open()) {
 		int size = fileNumbers.tellg();
 		int remainder = size % numprocs;
 		int sum = 0;
 		for (int i = 0; i < numprocs; i++) {
-		    local_counts[i] = size / numprocs;
+		    localCounts[i] = size / numprocs;
 		    if (remainder > 0) {
-		        local_counts[i] += 1;
+		        localCounts[i] += 1;
 		        remainder--;
 		    }
 		    offsets[i] = sum;
-		    sum += local_counts[i];
+		    sum += localCounts[i];
 		}	
 
 	} else {
@@ -65,7 +85,7 @@ int main(int argc, char ** argv) {
 	}
 
 	// Kazdy procesor si vytvori potrebnu velkost pola.
-	int localArray[local_counts[myId]];
+	int localArray[localCounts[myId]];
 
 	if (myId == 0) {
 		int number; 	//hodnota zo suboru
@@ -81,12 +101,16 @@ int main(int argc, char ** argv) {
 	}
 
 	startTime = MPI_Wtime();	//pociatocny cas
-	int *original_array = &values[0];
+	int *originalArray = &values[0];
 
 	// Rozdistribuovanie hodnot medzi vsetky procesory na zaklade vypocitanych offsetov.
-    MPI_Scatterv(original_array, local_counts, offsets, MPI_INT, localArray, local_counts[myId], MPI_INT, TAG, MPI_COMM_WORLD);
+	// originalArray - vsetky radene prvky
+	// localCounts - pocet prvkov kolko treba poslat kazdemu procesoru
+	// offsets - offset, podla ktoreho treba brat prvky pre kazdy procesor z originalArray
+	// localCounts[myId] - pocet prvkov daneho procesora
+    MPI_Scatterv(originalArray, localCounts, offsets, MPI_INT, localArray, localCounts[myId], MPI_INT, TAG, MPI_COMM_WORLD);
 
-	vector<int> finalValues(localArray, localArray + local_counts[myId]);
+	vector<int> finalValues(localArray, localArray + localCounts[myId]);
 	
 	sort(finalValues.begin(), finalValues.end());
 	
@@ -113,8 +137,8 @@ int main(int argc, char ** argv) {
 		} else {
 			//v sudom procesora prijmam data od susedneho procesoru
 			int previousId = getPreviousId(numprocs, myId);
-			receivedValues.resize(local_counts[previousId]);
-			MPI_Recv(&receivedValues[0], local_counts[previousId], MPI_INT, previousId, TAG, MPI_COMM_WORLD, &status);
+			receivedValues.resize(localCounts[previousId]);
+			MPI_Recv(&receivedValues[0], localCounts[previousId], MPI_INT, previousId, TAG, MPI_COMM_WORLD, &status);
 
 #ifdef DEBUG
 			printf("Received in id: %d from %d \n", myId, previousId);
@@ -123,6 +147,7 @@ int main(int argc, char ** argv) {
 
 			vector<int> mergedVector;
 			mergedVector.resize(finalValues.size() + receivedValues.size());
+			//Spojim dve zoradane postupnosti do postupnosti o dvojnasobnej dlzke
 			merge(finalValues.begin(), finalValues.end(), receivedValues.begin(), receivedValues.end(), mergedVector.begin());
 
 #ifdef DEBUG
@@ -131,8 +156,8 @@ int main(int argc, char ** argv) {
 #endif
 
 			if (myId == 0) { //ak sa nachadzam v prvom procesore, mensia cast zostane tu, vacsiu cast vratim spat na posledny procesor
-				vector<int> splittedLower(mergedVector.begin(), mergedVector.begin() + local_counts[myId]);
-				vector<int> splittedHigher(mergedVector.begin() + local_counts[myId], mergedVector.end());
+				vector<int> splittedLower(mergedVector.begin(), mergedVector.begin() + localCounts[myId]);
+				vector<int> splittedHigher(mergedVector.begin() + localCounts[myId], mergedVector.end());
 
 #ifdef DEBUG
 				printf("Splitted lower in id: %d from %d \n", myId, previousId);
@@ -145,8 +170,8 @@ int main(int argc, char ** argv) {
 				MPI_Send(&splittedHigher[0], splittedHigher.size(), MPI_INT, previousId, TAG, MPI_COMM_WORLD);
 				finalValues = splittedLower;
 			} else { //ak sa nenachadzam v prvom procesore, mensia cast sa vrati povodnemu, vacsia zostava tu
-				vector<int> splittedLower(mergedVector.begin(), mergedVector.begin() + local_counts[previousId]);
-				vector<int> splittedHigher(mergedVector.begin() + local_counts[previousId], mergedVector.end());
+				vector<int> splittedLower(mergedVector.begin(), mergedVector.begin() + localCounts[previousId]);
+				vector<int> splittedHigher(mergedVector.begin() + localCounts[previousId], mergedVector.end());
 
 #ifdef DEBUG
 				printf("Splitted lower in id: %d from %d \n", myId, previousId);
@@ -177,8 +202,8 @@ int main(int argc, char ** argv) {
 		} else {
 			//v lichom procesore prijmam data
 			int previousId = getPreviousId(numprocs, myId);
-			receivedValues.resize(local_counts[previousId]);
-			MPI_Recv(&receivedValues[0], local_counts[previousId], MPI_INT, previousId, TAG, MPI_COMM_WORLD, &status);
+			receivedValues.resize(localCounts[previousId]);
+			MPI_Recv(&receivedValues[0], localCounts[previousId], MPI_INT, previousId, TAG, MPI_COMM_WORLD, &status);
 
 #ifdef DEBUG
 			printf("Received in id: %d from %d \n", myId, previousId);
@@ -187,14 +212,15 @@ int main(int argc, char ** argv) {
 
 			vector<int> mergedVector;
 			mergedVector.resize(finalValues.size() + receivedValues.size());
+			//Spojim dve zoradane postupnosti do postupnosti o dvojnasobnej dlzke
 			merge(finalValues.begin(), finalValues.end(), receivedValues.begin(), receivedValues.end(), mergedVector.begin());
 
 #ifdef DEBUG
 			printf("Merged in id: %d from %d \n", myId, previousId);
 			printVector(mergedVector);
 #endif
-			vector<int> splittedLower(mergedVector.begin(), mergedVector.begin() + local_counts[previousId]);
-			vector<int> splittedHigher(mergedVector.begin() + local_counts[previousId], mergedVector.end());
+			vector<int> splittedLower(mergedVector.begin(), mergedVector.begin() + localCounts[previousId]);
+			vector<int> splittedHigher(mergedVector.begin() + localCounts[previousId], mergedVector.end());
 
 #ifdef DEBUG
 			printf("Splitted lower in id: %d from %d \n", myId, previousId);
@@ -208,19 +234,21 @@ int main(int argc, char ** argv) {
 		}
 	}
 
-	MPI_Gatherv(&finalValues[0], local_counts[myId], MPI_INT, original_array, local_counts, offsets, MPI_INT, TAG, MPI_COMM_WORLD);
+	//finalValues - pole prvkov procesora
+	//localCounts[myId] - pocet prvkov daneho procesora
+	//localCounts - pole poctu prvkov kolko treba prijat od kazdeho procesora
+	//offsets - offset, ktory urcuje miesto v originalArray kde sa ulozia prvky z kazdeho procesoru
+	MPI_Gatherv(&finalValues[0], localCounts[myId], MPI_INT, originalArray, localCounts, offsets, MPI_INT, TAG, MPI_COMM_WORLD);
 
 	if (myId == 0) {
 		endTime = MPI_Wtime();
 		for (int i = 0; i<values.size(); i++) {
-			printf(" %d", original_array[i]);
+			printf("%d\n", originalArray[i]);
 		}
-		cout << '\n';
-		cout << "Uplynuly cas: " << endTime-startTime << endl;
+#ifdef DEBUG
+		cerr << endTime-startTime;
+#endif
 	}
-	// vector<int> sortedVector(original_array, original_array + sizeof original_array  / sizeof original_array[0]);
-	// printf("Sorted vector: \n");
-
 
 	MPI_Finalize();
 	return 0;
